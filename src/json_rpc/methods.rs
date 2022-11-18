@@ -360,6 +360,8 @@ define_methods! {
     childstate_getStorageHash() -> (), // TODO:
     childstate_getStorageSize() -> (), // TODO:
     grandpa_roundState() -> (), // TODO:
+    grandpa_subscribeJustifications() -> Cow<'a, str> [grandpa_justifications],
+    grandpa_unsubscribeJustifications(subscription: String) -> bool,
     offchain_localStorageGet() -> (), // TODO:
     offchain_localStorageSet() -> (), // TODO:
     payment_queryInfo(extrinsic: HexString, hash: Option<HashHexString>) -> RuntimeDispatchInfo,
