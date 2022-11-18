@@ -985,6 +985,15 @@ impl<TSrc, TRq> VerifyWarpSyncFragment<TSrc, TRq> {
                     *verifier = Some(next_verifier);
                 }
                 Ok(warp_sync::Next::EmptyProof) => {
+                    let chain_information = self
+                    .inner
+                    .start_chain_information
+                    .as_ref()
+                    .finality
+                    .into();
+
+                    log::info!("EmptyProof RuntimeDownload {:?}", chain_information);
+
                     self.inner.phase = Phase::RuntimeDownload {
                         header: self
                             .inner
@@ -992,12 +1001,7 @@ impl<TSrc, TRq> VerifyWarpSyncFragment<TSrc, TRq> {
                             .as_ref()
                             .finalized_block_header
                             .into(),
-                        chain_information_finality: self
-                            .inner
-                            .start_chain_information
-                            .as_ref()
-                            .finality
-                            .into(),
+                        chain_information_finality: chain_information,
                         warp_sync_source_id: *downloaded_source,
                         downloaded_runtime: None,
                     };
@@ -1012,6 +1016,8 @@ impl<TSrc, TRq> VerifyWarpSyncFragment<TSrc, TRq> {
                         header::decode(&scale_encoded_header, self.inner.block_number_bytes)
                             .unwrap()
                             .into();
+
+                    log::info!("next success grandpa {:?} by {:?}", header, chain_information_finality);
 
                     if *final_set_of_fragments {
                         self.inner.phase = Phase::RuntimeDownload {
@@ -1183,6 +1189,9 @@ impl<TSrc, TRq> BuildRuntime<TSrc, TRq> {
                     (calls, in_progress)
                 }
             };
+
+            log::info!("ChainInformationDownload {:?}", chain_information_finality);
+            log::info!("ChainInformationDownload {:?}", warp_sync_source_id);
 
             self.inner.phase = Phase::ChainInformationDownload {
                 header: header.clone(),

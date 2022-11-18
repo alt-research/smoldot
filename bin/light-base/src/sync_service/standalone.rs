@@ -258,6 +258,7 @@ pub(super) async fn start_standalone_chain<TPlat: Platform>(
                                 scale_encoded_justification: f.scale_encoded_justification.to_vec(),
                             })
                             .collect();
+                            log::info!("pending_grandpa_requests");
                         task.sync.grandpa_warp_sync_response_ok(
                             request_id,
                             fragments,
@@ -666,6 +667,7 @@ impl<TPlat: Platform> Task<TPlat> {
                 finalized_storage_code,
                 finalized_storage_heap_pages,
             } => {
+                log::info!("WarpSyncFinished");
                 self.sync = sync;
 
                 let finalized_header = self.sync.finalized_block_header();
@@ -696,6 +698,8 @@ impl<TPlat: Platform> Task<TPlat> {
             }
 
             all::ProcessOne::VerifyWarpSyncFragment(verify) => {
+                log::info!("VerifyWarpSyncFragment");
+
                 // Grandpa warp sync fragment to verify.
                 let sender_peer_id = verify.proof_sender().1 .0.clone(); // TODO: unnecessary cloning most of the time
 
@@ -719,6 +723,8 @@ impl<TPlat: Platform> Task<TPlat> {
             }
 
             all::ProcessOne::VerifyHeader(verify) => {
+                log::info!("VerifyHeader {:?} {:?}", verify.height(), verify.hash());
+
                 // Header to verify.
                 let verified_hash = verify.hash();
                 let verified_height = verify.height();
@@ -864,6 +870,8 @@ impl<TPlat: Platform> Task<TPlat> {
             }
 
             all::ProcessOne::VerifyFinalityProof(verify) => {
+                log::info!("VerifyFinalityProof");
+
                 // Finality proof to verify.
                 match verify.perform(rand::random()) {
                     (
@@ -1220,6 +1228,9 @@ impl<TPlat: Platform> Task<TPlat> {
     fn dispatch_all_subscribers(&mut self, notification: Notification) {
         // Elements in `all_notifications` are removed one by one and inserted back if the
         // channel is still open.
+
+        log::info!("dispatch_all_subscribers {:?}", notification);
+
         for index in (0..self.all_notifications.len()).rev() {
             let mut subscription = self.all_notifications.swap_remove(index);
             if subscription.try_send(notification.clone()).is_err() {

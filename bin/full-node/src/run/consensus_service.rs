@@ -956,7 +956,9 @@ impl SyncBackground {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap();
 
-            match self.sync.process_one() {
+            let one = self.sync.process_one();
+
+            match one {
                 all::ProcessOne::AllSync(idle) => {
                     self.sync = idle;
                     break;

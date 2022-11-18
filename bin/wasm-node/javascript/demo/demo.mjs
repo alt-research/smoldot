@@ -83,12 +83,13 @@ client
         process.exit(1);
     });
 
-// Start the WebSocket server listening on port 9944.
+// Start the WebSocket server listening on port 19944.
 let wsServer = new WebSocketServer({
-    port: 9944
+    host: '10.1.1.49',
+    port: 19944
 });
 
-console.log('JSON-RPC server now listening on port 9944');
+console.log('JSON-RPC server now listening on port 19944');
 console.log('Please visit one of:');
 for (const chainId in chainSpecsById) {
     console.log('- ' + chainId + ': https://polkadot.js.org/apps/?rpc=ws%3A%2F%2F127.0.0.1%3A9944%2F' + chainId);

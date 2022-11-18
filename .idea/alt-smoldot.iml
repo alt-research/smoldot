@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="CPP_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/bin/full-node/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bin/light-base/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bin/light-base/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bin/light-node-bin/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bin/light-node-polkadot/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bin/wasm-node/rust/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

@@ -333,6 +333,8 @@ impl<C: AsRef<[u8]>> Verification<C> {
                     Err(_) => return InProgress::Finished(Err(Error::BadSignature)),
                 }
 
+                log::info!("InProgress::Finished decoded_commit {:?}", decoded_commit);
+
                 return InProgress::Finished(Ok(()));
             }
         }

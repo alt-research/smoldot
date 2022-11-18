@@ -945,6 +945,8 @@ impl<TBl, TRq, TSrc> AllForksSync<TBl, TRq, TSrc> {
     /// This method takes ownership of the [`AllForksSync`] and starts a verification
     /// process. The [`AllForksSync`] is yielded back at the end of this process.
     pub fn process_one(mut self) -> ProcessOne<TBl, TRq, TSrc> {
+        log::info!("all_forks process one");
+
         // TODO: O(n)
         let source_id_with_finality_proof = self
             .inner
@@ -1985,6 +1987,7 @@ impl<TBl, TRq, TSrc> FinalityProofVerify<TBl, TRq, TSrc> {
     ) {
         let outcome = match self.finality_proof_to_verify {
             FinalityProof::GrandpaCommit(scale_encoded_commit) => {
+                log::info!("perform FinalityProof::GrandpaCommit");
                 match self
                     .parent
                     .chain
@@ -2001,6 +2004,9 @@ impl<TBl, TRq, TSrc> FinalityProofVerify<TBl, TRq, TSrc> {
                             .inner
                             .blocks
                             .set_finalized_block_height(finalized_blocks.last().unwrap().0.number);
+
+                        log::info!("perform FinalityProof::GrandpaCommit NewFinalized {:?}", finalized_blocks.last().unwrap().0.number);
+
                         FinalityProofVerifyOutcome::NewFinalized {
                             finalized_blocks,
                             updates_best_block,
@@ -2047,6 +2053,7 @@ impl<TBl, TRq, TSrc> FinalityProofVerify<TBl, TRq, TSrc> {
                     randomness_seed,
                 ) {
                     Ok(success) => {
+                        log::info!("FinalityProof::Justification");
                         let finalized_blocks_iter = success.apply();
                         let updates_best_block = finalized_blocks_iter.updates_best_block();
                         let finalized_blocks = finalized_blocks_iter
@@ -2056,6 +2063,9 @@ impl<TBl, TRq, TSrc> FinalityProofVerify<TBl, TRq, TSrc> {
                             .inner
                             .blocks
                             .set_finalized_block_height(finalized_blocks.last().unwrap().0.number);
+
+                        log::info!("FinalityProof::Justification NewFinalized {:?}", finalized_blocks.last().unwrap().0.number);
+
                         FinalityProofVerifyOutcome::NewFinalized {
                             finalized_blocks,
                             updates_best_block,

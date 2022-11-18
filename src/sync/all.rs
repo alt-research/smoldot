@@ -2204,6 +2204,7 @@ impl<TRq, TSrc, TBl> FinalityProofVerify<TRq, TSrc, TBl> {
     ) -> (AllSync<TRq, TSrc, TBl>, FinalityProofVerifyOutcome<TBl>) {
         match self.inner {
             FinalityProofVerifyInner::AllForks(verify) => {
+                log::info!("FinalityProofVerifyInner::AllForks");
                 let (sync, outcome) = match verify.perform(randomness_seed) {
                     (
                         sync,
@@ -2211,7 +2212,15 @@ impl<TRq, TSrc, TBl> FinalityProofVerify<TRq, TSrc, TBl> {
                             finalized_blocks,
                             updates_best_block,
                         },
-                    ) => (
+                    ) =>{
+
+                        log::info!("FinalityProofVerifyOutcome::NewFinalized");
+
+                        for blk in finalized_blocks.iter(){
+                            log::info!("FinalityProofVerifyOutcome::NewFinalized blk {:?}", blk.0);
+                        }
+
+                        (
                         sync,
                         FinalityProofVerifyOutcome::NewFinalized {
                             finalized_blocks: finalized_blocks
@@ -2225,17 +2234,21 @@ impl<TRq, TSrc, TBl> FinalityProofVerify<TRq, TSrc, TBl> {
                                 .collect(),
                             updates_best_block,
                         },
-                    ),
+                    )},
                     (sync, all_forks::FinalityProofVerifyOutcome::AlreadyFinalized) => {
+                        log::info!("FinalityProofVerifyOutcome::AlreadyFinalized");
                         (sync, FinalityProofVerifyOutcome::AlreadyFinalized)
                     }
                     (sync, all_forks::FinalityProofVerifyOutcome::GrandpaCommitPending) => {
+                        log::info!("FinalityProofVerifyOutcome::GrandpaCommitPending");
                         (sync, FinalityProofVerifyOutcome::GrandpaCommitPending)
                     }
                     (sync, all_forks::FinalityProofVerifyOutcome::JustificationError(error)) => {
+                        log::info!("FinalityProofVerifyOutcome::JustificationError");
                         (sync, FinalityProofVerifyOutcome::JustificationError(error))
                     }
                     (sync, all_forks::FinalityProofVerifyOutcome::GrandpaCommitError(error)) => {
+                        log::info!("FinalityProofVerifyOutcome::GrandpaCommitError");
                         (sync, FinalityProofVerifyOutcome::GrandpaCommitError(error))
                     }
                 };
@@ -2248,38 +2261,41 @@ impl<TRq, TSrc, TBl> FinalityProofVerify<TRq, TSrc, TBl> {
                     outcome,
                 )
             }
-            FinalityProofVerifyInner::Optimistic(verify) => match verify.perform(randomness_seed) {
-                (inner, optimistic::JustificationVerification::Finalized { finalized_blocks }) => (
-                    // TODO: transition to all_forks
-                    AllSync {
-                        inner: AllSyncInner::Optimistic { inner },
-                        shared: self.shared,
-                    },
-                    FinalityProofVerifyOutcome::NewFinalized {
-                        finalized_blocks: finalized_blocks
-                            .into_iter()
-                            .map(|b| Block {
-                                header: b.header,
-                                justifications: b.justifications,
-                                user_data: b.user_data,
-                                full: b.full.map(|b| BlockFull {
-                                    body: b.body,
-                                    offchain_storage_changes: b.offchain_storage_changes,
-                                    storage_top_trie_changes: b.storage_top_trie_changes,
-                                }),
-                            })
-                            .collect(),
-                        updates_best_block: false,
-                    },
-                ),
-                (inner, optimistic::JustificationVerification::Reset { error, .. }) => (
-                    AllSync {
-                        inner: AllSyncInner::Optimistic { inner },
-                        shared: self.shared,
-                    },
-                    FinalityProofVerifyOutcome::JustificationError(error),
-                ),
-            },
+            FinalityProofVerifyInner::Optimistic(verify) => {
+                log::info!("FinalityProofVerifyInner::Optimistic");
+                match verify.perform(randomness_seed) {
+                    (inner, optimistic::JustificationVerification::Finalized { finalized_blocks }) => (
+                        // TODO: transition to all_forks
+                        AllSync {
+                            inner: AllSyncInner::Optimistic { inner },
+                            shared: self.shared,
+                        },
+                        FinalityProofVerifyOutcome::NewFinalized {
+                            finalized_blocks: finalized_blocks
+                                .into_iter()
+                                .map(|b| Block {
+                                    header: b.header,
+                                    justifications: b.justifications,
+                                    user_data: b.user_data,
+                                    full: b.full.map(|b| BlockFull {
+                                        body: b.body,
+                                        offchain_storage_changes: b.offchain_storage_changes,
+                                        storage_top_trie_changes: b.storage_top_trie_changes,
+                                    }),
+                                })
+                                .collect(),
+                            updates_best_block: false,
+                        },
+                    ),
+                    (inner, optimistic::JustificationVerification::Reset { error, .. }) => (
+                        AllSync {
+                            inner: AllSyncInner::Optimistic { inner },
+                            shared: self.shared,
+                        },
+                        FinalityProofVerifyOutcome::JustificationError(error),
+                    ),
+                }
+            }
         }
     }
 }

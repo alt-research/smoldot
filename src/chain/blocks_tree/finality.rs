@@ -245,6 +245,8 @@ impl<T> NonFinalizedTreeInner<T> {
                 )
                 .map_err(JustificationVerifyError::InvalidJustification)?;
 
+                log::info!("verify_justification {:?}", decoded);
+
                 // Delegate the first step to the other function.
                 let (block_index, authorities_set_id, authorities_list) = self
                     .verify_grandpa_finality(decoded.target_hash, decoded.target_number)
@@ -275,6 +277,7 @@ impl<T> NonFinalizedTreeInner<T> {
         verify_grandpa_commit_message: &[u8],
         randomness_seed: [u8; 32],
     ) -> Result<FinalityApply<T>, CommitVerifyError> {
+        log::info!("verify_grandpa_commit_message");
         // The code below would panic if the chain doesn't use Grandpa.
         if !matches!(self.finality, Finality::Grandpa { .. }) {
             return Err(CommitVerifyError::NotGrandpa);
@@ -285,6 +288,8 @@ impl<T> NonFinalizedTreeInner<T> {
             self.block_number_bytes,
         )
         .map_err(|_| CommitVerifyError::InvalidCommit)?;
+
+        log::info!("grandpa commit decoded_commit {:?}", decoded_commit);
 
         // Delegate the first step to the other function.
         let (block_index, expected_authorities_set_id, authorities_list) = self
@@ -305,6 +310,8 @@ impl<T> NonFinalizedTreeInner<T> {
         loop {
             match verification {
                 grandpa::commit::verify::InProgress::Finished(Ok(())) => {
+                    log::info!("verify::InProgress::Finished {:?}", block_index);
+
                     drop(authorities_list);
                     return Ok(FinalityApply {
                         chain: self,
