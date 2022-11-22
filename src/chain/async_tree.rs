@@ -149,6 +149,9 @@ pub struct AsyncTree<TNow, TBl, TAsync> {
     /// [`AsyncOpState::Finished`].
     input_finalized_index: Option<fork_tree::NodeIndex>,
 
+    /// Encode finality proof for input_finalized_index.
+    input_encoded_finality_proof: Option<Vec<u8>>,
+
     /// Incremented by one and stored within [`Block::input_best_block_weight`].
     input_best_block_next_weight: u32,
 
@@ -174,6 +177,7 @@ where
             finalized_async_user_data: config.finalized_async_user_data,
             non_finalized_blocks: fork_tree::ForkTree::with_capacity(config.blocks_capacity),
             input_finalized_index: None,
+            input_encoded_finality_proof: None,
             input_best_block_next_weight: 2,
             finalized_block_weight: 1, // `0` is reserved for blocks who are never best.
             next_async_op_id: AsyncOpId(0),
@@ -226,6 +230,7 @@ where
                 user_data: block.user_data,
             }),
             input_finalized_index: self.input_finalized_index,
+            input_encoded_finality_proof: self.input_encoded_finality_proof,
             input_best_block_next_weight: self.input_best_block_next_weight,
             finalized_block_weight: self.finalized_block_weight,
             next_async_op_id: self.next_async_op_id,
@@ -833,7 +838,12 @@ where
     /// Panics if `node_to_finalize` or `new_best_block` aren't valid nodes.
     /// Panics if `new_best_block` is not a descendant of `node_to_finalize`.
     ///
-    pub fn input_finalize(&mut self, node_to_finalize: NodeIndex, new_best_block: NodeIndex) {
+    pub fn input_finalize(
+        &mut self,
+        node_to_finalize: NodeIndex,
+        new_best_block: NodeIndex,
+        encoded_finality_proof: Option<Vec<u8>>,
+    ) {
         // Make sure that `new_best_block` is a descendant of `node_to_finalize`,
         // otherwise the state of the tree will be corrupted.
         // This is checked with an `assert!` rather than a `debug_assert!`, as this constraint
@@ -843,6 +853,7 @@ where
             .is_ancestor(node_to_finalize, new_best_block));
 
         self.input_finalized_index = Some(node_to_finalize);
+        self.input_encoded_finality_proof = encoded_finality_proof;
 
         // If necessary, update the weight of the block.
         match &mut self
@@ -990,6 +1001,8 @@ where
                     _ => unreachable!(),
                 };
 
+                let encoded_finality_proof = self.input_encoded_finality_proof.take();
+
                 return Some(OutputUpdate::Finalized {
                     former_index: new_finalized,
                     user_data: pruned_finalized.user_data.user_data,
@@ -997,6 +1010,7 @@ where
                     former_finalized_async_op_user_data,
                     pruned_blocks,
                     best_block_index: self.best_block_index,
+                    encoded_finality_proof,
                 });
             }
         }
@@ -1181,6 +1195,8 @@ pub enum OutputUpdate<'a, TBl, TAsync> {
         /// If the `Option<TAsync>` is `Some`, then that block was part of the output. Otherwise
         /// it wasn't.
         pruned_blocks: Vec<(NodeIndex, TBl, Option<TAsync>)>,
+        /// Proof for the new finalized, just for grandpa
+        encoded_finality_proof: Option<Vec<u8>>,
     },
 
     /// A new block has been added to the list of output unfinalized blocks.

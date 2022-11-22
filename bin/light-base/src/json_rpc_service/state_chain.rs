@@ -37,6 +37,7 @@ use core::{
     time::Duration,
 };
 use futures::{lock::MutexGuard, prelude::*};
+use smoldot::json_rpc::methods::HexString;
 use smoldot::{
     header,
     informant::HashDisplay,
@@ -1785,49 +1786,31 @@ impl<TPlat: Platform> Background<TPlat> {
                     loop {
                         match new_blocks.next().await {
                             // TODO: change to GrandpaJustification.
-                            Some(runtime_service::Notification::Block(block)) => {
-                                new_blocks
-                                    .unpin_block(&header::hash_from_scale_encoded_header(
-                                        &block.scale_encoded_header,
-                                    ))
-                                    .await;
-
-                                let header = match methods::Header::from_scale_encoded_header(
-                                    &block.scale_encoded_header,
-                                    me.sync_service.block_number_bytes(),
-                                ) {
-                                    Ok(h) => h,
-                                    Err(error) => {
-                                        log::warn!(
-                                            target: &me.log_target,
-                                            "`chain_subscribeAllHeads` subscription has skipped \
-                                            block due to undecodable header. Hash: {}. Error: {}",
-                                            HashDisplay(&header::hash_from_scale_encoded_header(&block.scale_encoded_header)),
-                                            error,
-                                        );
-                                        continue;
-                                    }
-                                };
-
+                            Some(runtime_service::Notification::Finalized {
+                                grandpa_justification,
+                                ..
+                            }) => {
                                 // This function call will fail if the queue of notifications to
                                 // the user has too many elements in it. This JSON-RPC function
                                 // unfortunately doesn't provide any mechanism to deal with this
                                 // situation, and we handle it by simply not sending the
                                 // notification.
+                                if let Some(grandpa_justification) = grandpa_justification{
                                 let _ = me
                                     .requests_subscriptions
                                     .try_push_notification(
                                         &state_machine_subscription,
-                                        methods::ServerToClient::chain_newHead {
+                                        methods::ServerToClient::grandpa_subscribeJustifications {
                                             subscription: (&subscription_id).into(),
-                                            result: header,
+                                            result: HexString(grandpa_justification),
                                         }
                                         .to_json_call_object_parameters(None),
                                     )
                                     .await;
+                                }
                             }
                             Some(runtime_service::Notification::BestBlockChanged { .. })
-                            | Some(runtime_service::Notification::Finalized { .. }) => {}
+                            | Some(runtime_service::Notification::Block { .. }) => {}
                             None => {
                                 // Break from the inner loop in order to recreate the channel.
                                 break;

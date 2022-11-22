@@ -473,6 +473,7 @@ define_methods! {
     chain_newHead(subscription: Cow<'a, str>, result: Header) -> (),
     state_runtimeVersion(subscription: Cow<'a, str>, result: Option<RuntimeVersion<'a>>) -> (), // TODO: the Option is a custom addition
     state_storage(subscription: Cow<'a, str>, result: StorageChangeSet) -> (),
+    grandpa_subscribeJustifications(subscription: Cow<'a, str>, result: HexString) -> (),
 
     // The functions below are experimental and are defined in the document https://github.com/paritytech/json-rpc-interface-spec/
     chainHead_unstable_bodyEvent(subscription: Cow<'a, str>, result: ChainHeadBodyEvent) -> (),

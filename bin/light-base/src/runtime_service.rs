@@ -79,7 +79,7 @@ use futures::{
 use itertools::Itertools as _;
 use smoldot::{
     chain::async_tree,
-    executor, header,
+    executor, finality, header,
     informant::{BytesDisplay, HashDisplay},
     network::protocol,
     trie::{self, proof_verify},
@@ -147,7 +147,7 @@ impl<TPlat: Platform> RuntimeService<TPlat> {
                 false,
                 true,
             );
-            tree.input_finalize(node_index, node_index);
+            tree.input_finalize(node_index, node_index, None);
 
             GuardedInner::FinalizedBlockRuntimeUnknown {
                 tree,
@@ -242,6 +242,7 @@ impl<TPlat: Platform> RuntimeService<TPlat> {
                     finalized_block,
                     pinned_blocks,
                     all_blocks_subscriptions,
+                    ..
                 } => (
                     tree,
                     finalized_block,
@@ -666,6 +667,9 @@ pub enum Notification {
         /// This list contains all the siblings of the newly-finalized block and all their
         /// descendants.
         pruned_blocks: Vec<[u8; 32]>,
+
+        /// The grandpa justification
+        grandpa_justification: Option<Vec<u8>>,
     },
 
     /// A new block has been added to the list of unfinalized blocks.
@@ -713,6 +717,52 @@ pub struct BlockNotification {
     /// If the runtime of the block is different from its parent, contains the information about
     /// the new runtime.
     pub new_runtime: Option<Result<executor::CoreVersion, RuntimeError>>,
+}
+
+/// A commit message which is an aggregate of precommits.
+#[derive(Debug, Clone, PartialEq, Eq, parity_scale_codec::Encode)]
+pub struct GrandpaCommit {
+    /// The target block's hash.
+    pub target_hash: [u8; 32],
+    /// The target block's number.
+    pub target_number: u64,
+    /// Precommits for target block or any block after it that justify this commit.
+    pub precommits: Vec<GrandpaSignedPrecommit>,
+}
+
+/// A precommit for a block and its ancestors.
+#[derive(Clone, Debug, PartialEq, Eq, parity_scale_codec::Encode)]
+pub struct GrandpaPrecommit {
+    /// The target block's hash.
+    pub target_hash: [u8; 32],
+    /// The target block's number
+    pub target_number: u64,
+}
+
+/// A signed precommit message.
+/// TODO: the type of signature and id should use defined type.
+#[derive(Debug, Clone, PartialEq, Eq, parity_scale_codec::Encode)]
+pub struct GrandpaSignedPrecommit {
+    /// The precommit message which has been signed.
+    pub precommit: GrandpaPrecommit,
+    /// The signature on the message.
+    pub signature: [u8; 64],
+    /// The Id of the signer.
+    pub id: [u8; 32],
+}
+
+/// Notification about a new grandpa justification.
+///
+/// See [`RuntimeService::subscribe_all`].
+/// TODO: not use codec.
+#[derive(Debug, Clone, parity_scale_codec::Encode)]
+pub struct GrandpaJustification {
+    /// The round for justification.
+    pub round: u64,
+    /// The commits
+    pub commit: GrandpaCommit,
+    /// SCALE-encoded header of the votes ancestries.
+    pub scale_encoded_votes_ancestries: Vec<Vec<u8>>,
 }
 
 async fn is_near_head_of_chain_heuristic<TPlat: Platform>(
@@ -1049,6 +1099,14 @@ enum GuardedInner<TPlat: Platform> {
         /// [`Guarded::runtimes`], state trie root hashes, block numbers, and whether the block
         /// is non-finalized and part of the canonical chain.
         pinned_blocks: BTreeMap<(u64, [u8; 32]), PinnedBlock>,
+
+        /// List of all known non-finalized blocks at the time of subscription.
+        ///
+        /// Only one element in this list has [`BlockNotification::is_new_best`] equal to true.
+        ///
+        /// The blocks are guaranteed to be ordered so that parents are always found before their
+        /// children.
+        non_finalized_blocks_ancestry_order: Vec<sync_service::BlockNotification>,
     },
     FinalizedBlockRuntimeUnknown {
         /// Tree of blocks. Holds the state of the download of everything. Always `Some` when the
@@ -1212,7 +1270,7 @@ async fn run_background<TPlat: Platform>(
                                 blocks_capacity: 32,
                             });
 
-                        for block in subscription.non_finalized_blocks_ancestry_order {
+                        for block in &subscription.non_finalized_blocks_ancestry_order {
                             let parent_index = if block.parent_hash == finalized_block_hash {
                                 None
                             } else {
@@ -1233,7 +1291,7 @@ async fn run_background<TPlat: Platform>(
                                     hash: header::hash_from_scale_encoded_header(
                                         &block.scale_encoded_header,
                                     ),
-                                    scale_encoded_header: block.scale_encoded_header,
+                                    scale_encoded_header: block.scale_encoded_header.clone(),
                                 },
                                 parent_index,
                                 same_runtime_as_parent,
@@ -1243,6 +1301,8 @@ async fn run_background<TPlat: Platform>(
 
                         tree
                     },
+                    non_finalized_blocks_ancestry_order: subscription
+                        .non_finalized_blocks_ancestry_order,
                 };
             } else {
                 if let GuardedInner::FinalizedBlockRuntimeUnknown { when_known, .. } = &lock.tree {
@@ -1269,7 +1329,7 @@ async fn run_background<TPlat: Platform>(
                             false,
                             true,
                         );
-                        tree.input_finalize(node_index, node_index);
+                        tree.input_finalize(node_index, node_index, None);
 
                         for block in subscription.non_finalized_blocks_ancestry_order {
                             let parent_index = tree
@@ -1309,6 +1369,7 @@ async fn run_background<TPlat: Platform>(
             blocks_stream: subscription.new_blocks.boxed(),
             wake_up_new_necessary_download: future::pending().boxed().fuse(),
             runtime_downloads: stream::FuturesUnordered::new(),
+            block_number_bytes: sync_service.block_number_bytes(),
         };
 
         background.start_necessary_downloads().await;
@@ -1368,14 +1429,14 @@ async fn run_background<TPlat: Platform>(
 
                             background.advance_and_notify_subscribers(guarded);
                         },
-                        Some(sync_service::Notification::Finalized { hash, best_block_hash }) => {
+                        Some(sync_service::Notification::Finalized { hash, best_block_hash, proof }) => {
                             log::debug!(
                                 target: &log_target,
                                 "Worker <= InputFinalized(hash={}, best={})",
                                 HashDisplay(&hash), HashDisplay(&best_block_hash)
                             );
 
-                            background.finalize(hash, best_block_hash).await;
+                            background.finalize(hash, best_block_hash, proof).await;
                         }
                         Some(sync_service::Notification::BestBlockChanged { hash }) => {
                             log::debug!(
@@ -1518,6 +1579,9 @@ struct Background<TPlat: Platform> {
 
     /// Future that wakes up when a new download to start is potentially ready.
     wake_up_new_necessary_download: future::Fuse<future::BoxFuture<'static, ()>>,
+
+    /// See [`Config::block_number_bytes`].
+    block_number_bytes: usize,
 }
 
 impl<TPlat: Platform> Background<TPlat> {
@@ -1588,6 +1652,107 @@ impl<TPlat: Platform> Background<TPlat> {
         self.advance_and_notify_subscribers(&mut guarded);
     }
 
+    fn build_grandpa_justification(
+        &self,
+        non_finalized_blocks_ancestry_order: &Vec<sync_service::BlockNotification>,
+        finalized_block: &Block,
+        encoded_finality_proof: Option<Vec<u8>>,
+    ) -> Option<Vec<u8>> {
+        use parity_scale_codec::Encode;
+
+        encoded_finality_proof.map(|encoded_finality_proof| {
+            let decoded_commit = finality::grandpa::commit::decode::decode_grandpa_commit(
+                &encoded_finality_proof,
+                self.block_number_bytes,
+            )
+            .expect("decode grandpa commit failed");
+
+            let precommits = decoded_commit
+                .message
+                .precommits
+                .into_iter()
+                .zip(decoded_commit.message.auth_data.into_iter())
+                .map(|(precommit, (signature, id))| GrandpaSignedPrecommit {
+                    precommit: GrandpaPrecommit {
+                        target_hash: precommit.target_hash.clone(),
+                        target_number: precommit.target_number,
+                    },
+                    signature: signature.clone(),
+                    id: id.clone(),
+                })
+                .collect();
+
+            let commit = GrandpaCommit {
+                target_hash: decoded_commit.message.target_hash.clone(),
+                target_number: decoded_commit.message.target_number,
+                precommits,
+            };
+
+            let mut scale_encoded_votes_ancestries = Vec::with_capacity(commit.precommits.len());
+            let mut votes_ancestries_hashes = BTreeMap::new();
+
+            let (base_hash, _base_number) = match commit
+                .precommits
+                .iter()
+                .map(|signed| &signed.precommit)
+                .min_by_key(|precommit| precommit.target_number)
+                .map(|precommit| (precommit.target_hash, precommit.target_number))
+            {
+                None => panic!("get base hash failed"),
+                Some(base) => base,
+            };
+
+            let non_finalized_blocks_map = non_finalized_blocks_ancestry_order
+                .iter()
+                .map(|block| {
+                    (
+                        header::hash_from_scale_encoded_header(&block.scale_encoded_header),
+                        (block.parent_hash, block.scale_encoded_header.clone()),
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+
+            for precommit in commit.precommits.iter() {
+                let mut current_hash = precommit.precommit.target_hash;
+                loop {
+                    if current_hash == base_hash {
+                        break;
+                    }
+
+                    let (parent_hash, current_header) = if current_hash == finalized_block.hash {
+                        let decode_header = header::decode(
+                            &finalized_block.scale_encoded_header,
+                            self.block_number_bytes,
+                        )
+                        .expect("decode header for finalized block failed");
+
+                        (
+                            decode_header.parent_hash.clone(),
+                            finalized_block.scale_encoded_header.clone(),
+                        )
+                    } else {
+                        non_finalized_blocks_map
+                            .get(&current_hash)
+                            .expect("no find the hash from non_finalized_blocks_map")
+                            .clone()
+                    };
+
+                    if votes_ancestries_hashes.insert(current_hash, ()).is_none() {
+                        scale_encoded_votes_ancestries.push(current_header);
+                    }
+
+                    current_hash = parent_hash;
+                }
+            }
+
+            GrandpaJustification {
+                round: decoded_commit.round_number,
+                commit,
+                scale_encoded_votes_ancestries,
+            }.encode()
+        })
+    }
+
     fn advance_and_notify_subscribers(&self, guarded: &mut Guarded<TPlat>) {
         loop {
             match &mut guarded.tree {
@@ -1596,6 +1761,7 @@ impl<TPlat: Platform> Background<TPlat> {
                     finalized_block,
                     all_blocks_subscriptions,
                     pinned_blocks,
+                    non_finalized_blocks_ancestry_order,
                 } => match tree.try_advance_output() {
                     None => break,
                     Some(async_tree::OutputUpdate::Finalized {
@@ -1603,6 +1769,7 @@ impl<TPlat: Platform> Background<TPlat> {
                         best_block_index,
                         pruned_blocks,
                         former_finalized_async_op_user_data: former_finalized_runtime,
+                        encoded_finality_proof,
                         ..
                     }) => {
                         *finalized_block = new_finalized;
@@ -1626,6 +1793,11 @@ impl<TPlat: Platform> Background<TPlat> {
                             best_block_hash,
                             hash: finalized_block.hash,
                             pruned_blocks: pruned_blocks.iter().map(|(_, b, _)| b.hash).collect(),
+                            grandpa_justification: self.build_grandpa_justification(
+                                non_finalized_blocks_ancestry_order,
+                                finalized_block,
+                                encoded_finality_proof,
+                            ),
                         };
 
                         let mut to_remove = Vec::new();
@@ -1827,6 +1999,7 @@ impl<TPlat: Platform> Background<TPlat> {
                             pinned_blocks: BTreeMap::new(),
                             tree: new_tree,
                             finalized_block: new_finalized,
+                            non_finalized_blocks_ancestry_order: Default::default(),
                         };
                     }
                 },
@@ -1935,7 +2108,12 @@ impl<TPlat: Platform> Background<TPlat> {
     }
 
     /// Updates `self` to take into account that the sync service has finalized the given block.
-    async fn finalize(&mut self, hash_to_finalize: [u8; 32], new_best_block_hash: [u8; 32]) {
+    async fn finalize(
+        &mut self,
+        hash_to_finalize: [u8; 32],
+        new_best_block_hash: [u8; 32],
+        encoded_finality_proof: Option<Vec<u8>>,
+    ) {
         let mut guarded = self.guarded.lock().await;
 
         match &mut guarded.tree {
@@ -1955,7 +2133,7 @@ impl<TPlat: Platform> Background<TPlat> {
                     .find(|block| block.user_data.hash == new_best_block_hash)
                     .unwrap()
                     .id;
-                tree.input_finalize(node_to_finalize, new_best_block);
+                tree.input_finalize(node_to_finalize, new_best_block, encoded_finality_proof);
             }
             GuardedInner::FinalizedBlockRuntimeUnknown { tree, .. } => {
                 let node_to_finalize = tree
@@ -1968,7 +2146,7 @@ impl<TPlat: Platform> Background<TPlat> {
                     .find(|block| block.user_data.hash == new_best_block_hash)
                     .unwrap()
                     .id;
-                tree.input_finalize(node_to_finalize, new_best_block);
+                tree.input_finalize(node_to_finalize, new_best_block, encoded_finality_proof);
             }
         }
 
