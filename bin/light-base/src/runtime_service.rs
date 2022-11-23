@@ -724,8 +724,8 @@ pub struct BlockNotification {
 pub struct GrandpaCommit {
     /// The target block's hash.
     pub target_hash: [u8; 32],
-    /// The target block's number.
-    pub target_number: u64,
+    /// The target block's number. TODO: now we use u32 as target number.
+    pub target_number: u32,
     /// Precommits for target block or any block after it that justify this commit.
     pub precommits: Vec<GrandpaSignedPrecommit>,
 }
@@ -735,8 +735,8 @@ pub struct GrandpaCommit {
 pub struct GrandpaPrecommit {
     /// The target block's hash.
     pub target_hash: [u8; 32],
-    /// The target block's number
-    pub target_number: u64,
+    /// The target block's number. TODO: now we use u32 as target number.
+    pub target_number: u32,
 }
 
 /// A signed precommit message.
@@ -1675,7 +1675,7 @@ impl<TPlat: Platform> Background<TPlat> {
                 .map(|(precommit, (signature, id))| GrandpaSignedPrecommit {
                     precommit: GrandpaPrecommit {
                         target_hash: precommit.target_hash.clone(),
-                        target_number: precommit.target_number,
+                        target_number: precommit.target_number as u32,
                     },
                     signature: signature.clone(),
                     id: id.clone(),
@@ -1684,11 +1684,10 @@ impl<TPlat: Platform> Background<TPlat> {
 
             let commit = GrandpaCommit {
                 target_hash: decoded_commit.message.target_hash.clone(),
-                target_number: decoded_commit.message.target_number,
+                target_number: decoded_commit.message.target_number as u32,
                 precommits,
             };
-
-            let mut scale_encoded_votes_ancestries = Vec::with_capacity(commit.precommits.len());
+            let mut scale_encoded_votes_ancestries = Vec::new();
             let mut votes_ancestries_hashes = BTreeMap::new();
 
             let (base_hash, _base_number) = match commit
