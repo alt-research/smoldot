@@ -18,6 +18,7 @@
 #![recursion_limit = "1024"]
 #![deny(rustdoc::broken_intra_doc_links)]
 #![deny(unused_crate_dependencies)]
+#![feature(let_else)]
 
 mod cli;
 mod run;
