@@ -122,6 +122,41 @@ pub struct SourceId(usize);
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct RequestId(usize);
 
+/// Status of the synchronization.
+#[derive(Debug)]
+pub enum Status<'a, TSrc> {
+    /// Regular syncing mode.
+    Sync,
+    /// Warp syncing algorithm is downloading Grandpa warp sync fragments containing a finality
+    /// proof.
+    WarpSyncFragments {
+        /// Source from which the fragments are currently being downloaded, if any.
+        source: Option<(SourceId, &'a TSrc)>,
+        /// Hash of the highest block that is proven to be finalized.
+        ///
+        /// This isn't necessarily the same block as returned by
+        /// [`AllSync::as_chain_information`], as this function first has to download extra
+        /// information compared to just the finalized block.
+        finalized_block_hash: [u8; 32],
+        /// Height of the block indicated by [`Status::ChainInformation::finalized_block_hash`].
+        finalized_block_number: u64,
+    },
+    /// Warp syncing algorithm has reached the head of the finalized chain and is downloading and
+    /// building the chain information.
+    WarpSyncChainInformation {
+        /// Source from which the chain information is being downloaded.
+        source: (SourceId, &'a TSrc),
+        /// Hash of the highest block that is proven to be finalized.
+        ///
+        /// This isn't necessarily the same block as returned by
+        /// [`AllSync::as_chain_information`], as this function first has to download extra
+        /// information compared to just the finalized block.
+        finalized_block_hash: [u8; 32],
+        /// Height of the block indicated by [`Status::ChainInformation::finalized_block_hash`].
+        finalized_block_number: u64,
+    },
+}
+
 pub struct AllSync<TRq, TSrc, TBl> {
     inner: AllSyncInner<TRq, TSrc, TBl>,
     shared: Shared<TRq>,
@@ -205,6 +240,44 @@ impl<TRq, TSrc, TBl> AllSync<TRq, TSrc, TBl> {
             AllSyncInner::AllForks(sync) => sync.as_chain_information(),
             AllSyncInner::GrandpaWarpSync { inner: sync } => sync.as_chain_information(),
             AllSyncInner::Optimistic { inner } => inner.as_chain_information(),
+            AllSyncInner::Poisoned => unreachable!(),
+        }
+    }
+
+    /// Returns the current status of the syncing.
+    pub fn status(&self) -> Status<TSrc> {
+        match &self.inner {
+            AllSyncInner::AllForks(_) => Status::Sync,
+            AllSyncInner::GrandpaWarpSync { inner: sync } => match sync.status() {
+                warp_sync::Status::Fragments {
+                    source: None,
+                    finalized_block_hash,
+                    finalized_block_number,
+                } => Status::WarpSyncFragments {
+                    source: None,
+                    finalized_block_hash,
+                    finalized_block_number,
+                },
+                warp_sync::Status::Fragments {
+                    source: Some((_, user_data)),
+                    finalized_block_hash,
+                    finalized_block_number,
+                } => Status::WarpSyncFragments {
+                    source: Some((user_data.outer_source_id, &user_data.user_data)),
+                    finalized_block_hash,
+                    finalized_block_number,
+                },
+                warp_sync::Status::ChainInformation {
+                    source: (_, user_data),
+                    finalized_block_hash,
+                    finalized_block_number,
+                } => Status::WarpSyncChainInformation {
+                    source: (user_data.outer_source_id, &user_data.user_data),
+                    finalized_block_hash,
+                    finalized_block_number,
+                },
+            },
+            AllSyncInner::Optimistic { .. } => Status::Sync, // TODO: right now we don't differentiate between AllForks and Optimistic, as they're kind of similar anyway
             AllSyncInner::Poisoned => unreachable!(),
         }
     }
@@ -1557,8 +1630,7 @@ impl<TRq, TSrc, TBl> AllSync<TRq, TSrc, TBl> {
     /// Inject a response to a previously-emitted call proof request.
     ///
     /// On success, must contain the encoded Merkle proof. See the
-    /// [`trie`](crate::trie::proof_verify) module for a description of the format of Merkle
-    /// proofs.
+    /// [`trie`](crate::trie) module for a description of the format of Merkle proofs.
     ///
     /// # Panic
     ///
@@ -1568,7 +1640,7 @@ impl<TRq, TSrc, TBl> AllSync<TRq, TSrc, TBl> {
     pub fn call_proof_response(
         &mut self,
         request_id: RequestId,
-        response: Result<impl Iterator<Item = impl AsRef<[u8]>>, ()>,
+        response: Result<Vec<u8>, ()>,
     ) -> (TRq, ResponseOutcome) {
         debug_assert!(self.shared.requests.contains(request_id.0));
         let request = self.shared.requests.remove(request_id.0);

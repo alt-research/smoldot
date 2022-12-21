@@ -300,6 +300,15 @@ impl<TPlat: Platform> Background<TPlat> {
                         }
                         .to_json_call_object_parameters(None)
                     }
+                    Some(Err(runtime_service::RuntimeCallError::MissingProofEntry)) => {
+                        methods::ServerToClient::chainHead_unstable_callEvent {
+                            subscription: (&subscription_id).into(),
+                            result: methods::ChainHeadCallEvent::Error {
+                                error: "incomplete call proof".into(),
+                            },
+                        }
+                        .to_json_call_object_parameters(None)
+                    }
                     Some(Err(runtime_service::RuntimeCallError::CallProof(error))) => {
                         methods::ServerToClient::chainHead_unstable_callEvent {
                             subscription: (&subscription_id).into(),
@@ -1441,12 +1450,10 @@ impl<TPlat: Platform> Background<TPlat> {
         state_machine_request_id: &requests_subscriptions::RequestId,
         max_size_bytes: Option<u64>,
     ) {
-        // TODO: move the encode_database function where it makes more sense
-        let response = super::super::encode_database(
+        let response = crate::database::encode_database(
             &self.network_service.0,
             &self.sync_service,
             &self.genesis_block_hash,
-            self.sync_service.block_number_bytes(),
             usize::try_from(max_size_bytes.unwrap_or(u64::max_value()))
                 .unwrap_or(usize::max_value()),
         )

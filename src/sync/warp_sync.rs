@@ -103,7 +103,7 @@ use crate::{
     },
     finality::grandpa::warp_sync,
     header::{self, Header},
-    trie::proof_verify,
+    trie::proof_decode,
 };
 
 use alloc::{borrow::Cow, vec::Vec};
@@ -128,7 +128,10 @@ pub enum Error {
     ChainInformationBuild(chain_information::build::Error),
     /// Failed to verify call proof.
     // TODO: this is a non-fatal error contrary to all the other errors in this enum
-    InvalidCallProof(proof_verify::Error),
+    InvalidCallProof(proof_decode::Error),
+    /// Call proof is missing the necessary entries.
+    // TODO: this is a non-fatal error contrary to all the other errors in this enum
+    CallProofEntriesMissing,
     /// Warp sync requires fetching the key that follows another one. This isn't implemented in
     /// smoldot.
     NextKeyUnimplemented,
@@ -322,7 +325,7 @@ enum Phase {
         /// downloaded yet.
         calls: hashbrown::HashMap<
             chain_information::build::RuntimeCall,
-            Option<Vec<Vec<u8>>>,
+            Option<Vec<u8>>,
             fnv::FnvBuildHasher,
         >,
     },
@@ -333,6 +336,39 @@ struct DownloadedRuntime {
     storage_code: Option<Vec<u8>>,
     /// Storage item at the `:heappages` key. `None` if there is no entry at that key.
     storage_heap_pages: Option<Vec<u8>>,
+}
+
+/// See [`InProgressWarpSync::status`].
+#[derive(Debug)]
+pub enum Status<'a, TSrc> {
+    /// Warp syncing algorithm is downloading Grandpa warp sync fragments containing a finality
+    /// proof.
+    Fragments {
+        /// Source from which the fragments are currently being downloaded, if any.
+        source: Option<(SourceId, &'a TSrc)>,
+        /// Hash of the highest block that is proven to be finalized.
+        ///
+        /// This isn't necessarily the same block as returned by
+        /// [`InProgressWarpSync::as_chain_information`], as this function first has to download
+        /// extra information compared to just the finalized block.
+        finalized_block_hash: [u8; 32],
+        /// Height of the block indicated by [`Status::ChainInformation::finalized_block_hash`].
+        finalized_block_number: u64,
+    },
+    /// Warp syncing algorithm has reached the head of the finalized chain and is downloading and
+    /// building the chain information.
+    ChainInformation {
+        /// Source from which the chain information is being downloaded.
+        source: (SourceId, &'a TSrc),
+        /// Hash of the highest block that is proven to be finalized.
+        ///
+        /// This isn't necessarily the same block as returned by
+        /// [`InProgressWarpSync::as_chain_information`], as this function first has to download
+        /// extra information compared to just the finalized block.
+        finalized_block_hash: [u8; 32],
+        /// Height of the block indicated by [`Status::ChainInformation::finalized_block_hash`].
+        finalized_block_number: u64,
+    },
 }
 
 impl<TSrc, TRq> InProgressWarpSync<TSrc, TRq> {
@@ -349,6 +385,84 @@ impl<TSrc, TRq> InProgressWarpSync<TSrc, TRq> {
         // entire warp syncing has succeeded. If if it still in progress, all we can return is
         // the starting point.
         (&self.start_chain_information).into()
+    }
+
+    /// Returns the current status of the warp syncing.
+    pub fn status(&self) -> Status<TSrc> {
+        match self.phase {
+            Phase::DownloadFragments {
+                ref previous_verifier_values,
+            } => {
+                let (finalized_block_hash, finalized_block_number) = match previous_verifier_values
+                    .as_ref()
+                {
+                    Some((header, _)) => (header.hash(self.block_number_bytes), header.number),
+                    None => {
+                        let header = self.start_chain_information.as_ref().finalized_block_header;
+                        (header.hash(self.block_number_bytes), header.number)
+                    }
+                };
+
+                let source_id =
+                    self.in_progress_requests
+                        .iter()
+                        .find_map(|(_, (source_id, _, rq))| match rq {
+                            RequestDetail::WarpSyncRequest { block_hash }
+                                if *block_hash == finalized_block_hash =>
+                            {
+                                Some(*source_id)
+                            }
+                            _ => None,
+                        });
+
+                Status::Fragments {
+                    source: source_id.map(|id| (id, &self.sources[id.0].user_data)),
+                    finalized_block_hash,
+                    finalized_block_number,
+                }
+            }
+            Phase::PendingVerify {
+                downloaded_source,
+                ref previous_verifier_values,
+                ..
+            } => {
+                let (finalized_block_hash, finalized_block_number) = match previous_verifier_values
+                    .as_ref()
+                {
+                    Some((header, _)) => (header.hash(self.block_number_bytes), header.number),
+                    None => {
+                        let header = self.start_chain_information.as_ref().finalized_block_header;
+                        (header.hash(self.block_number_bytes), header.number)
+                    }
+                };
+
+                Status::Fragments {
+                    source: Some((
+                        downloaded_source,
+                        &self.sources[downloaded_source.0].user_data,
+                    )),
+                    finalized_block_hash,
+                    finalized_block_number,
+                }
+            }
+            Phase::RuntimeDownload {
+                warp_sync_source_id,
+                ref header,
+                ..
+            }
+            | Phase::ChainInformationDownload {
+                warp_sync_source_id,
+                ref header,
+                ..
+            } => Status::ChainInformation {
+                source: (
+                    warp_sync_source_id,
+                    &self.sources[warp_sync_source_id.0].user_data,
+                ),
+                finalized_block_hash: header.hash(self.block_number_bytes),
+                finalized_block_number: header.number,
+            },
+        }
     }
 
     /// Returns a list of all known sources stored in the state machine.
@@ -715,7 +829,7 @@ impl<TSrc, TRq> InProgressWarpSync<TSrc, TRq> {
     pub fn runtime_call_merkle_proof_success(
         &mut self,
         request_id: RequestId,
-        response: impl Iterator<Item = impl AsRef<[u8]>>,
+        response: Vec<u8>,
     ) -> TRq {
         match (
             self.in_progress_requests.remove(request_id.0),
@@ -741,7 +855,7 @@ impl<TSrc, TRq> InProgressWarpSync<TSrc, TRq> {
                     if function_name == call.function_name()
                         && parameters_equal(&parameter_vectored, call.parameter_vectored())
                     {
-                        *value = Some(response.map(|e| e.as_ref().to_vec()).collect());
+                        *value = Some(response);
                         break;
                     }
                 }
@@ -1225,37 +1339,61 @@ impl<TSrc, TRq> BuildChainInformation<TSrc, TRq> {
         {
             debug_assert!(calls.values().all(Option::is_some));
 
+            // Decode all the Merkle proofs that have been received.
+            let calls = {
+                let mut decoded_proofs = hashbrown::HashMap::with_capacity_and_hasher(
+                    calls.len(),
+                    fnv::FnvBuildHasher::default(),
+                );
+
+                for (call, proof) in calls {
+                    let proof = proof.take().unwrap();
+                    let decoded_proof =
+                        match proof_decode::decode_and_verify_proof(proof_decode::Config {
+                            trie_root_hash: &header.state_root,
+                            proof: proof.into_iter(),
+                        }) {
+                            Ok(d) => d,
+                            Err(err) => {
+                                self.inner.phase = Phase::DownloadFragments {
+                                    previous_verifier_values: Some((
+                                        header.clone(),
+                                        chain_information_finality.clone(),
+                                    )),
+                                };
+                                return (
+                                    WarpSync::InProgress(self.inner),
+                                    Some(Error::InvalidCallProof(err)),
+                                );
+                            }
+                        };
+                    decoded_proofs.insert(call.clone(), decoded_proof);
+                }
+
+                decoded_proofs
+            };
+
             let mut chain_info_builder = chain_info_builder.take().unwrap();
 
             loop {
                 match chain_info_builder {
                     chain_information::build::InProgress::StorageGet(get) => {
-                        let proof = calls
-                            .get(&get.call_in_progress())
-                            .unwrap()
-                            .as_ref()
-                            .unwrap();
-
-                        let value =
-                            match proof_verify::verify_proof(proof_verify::VerifyProofConfig {
-                                requested_key: get.key().as_ref(),
-                                trie_root_hash: &header.state_root,
-                                proof: proof.iter().map(|v| &v[..]),
-                            }) {
-                                Ok(v) => v,
-                                Err(err) => {
-                                    self.inner.phase = Phase::DownloadFragments {
-                                        previous_verifier_values: Some((
-                                            header.clone(),
-                                            chain_information_finality.clone(),
-                                        )),
-                                    };
-                                    return (
-                                        WarpSync::InProgress(self.inner),
-                                        Some(Error::InvalidCallProof(err)),
-                                    );
-                                }
-                            };
+                        let proof = calls.get(&get.call_in_progress()).unwrap();
+                        let value = match proof.storage_value(get.key().as_ref()) {
+                            Some(v) => v,
+                            None => {
+                                self.inner.phase = Phase::DownloadFragments {
+                                    previous_verifier_values: Some((
+                                        header.clone(),
+                                        chain_information_finality.clone(),
+                                    )),
+                                };
+                                return (
+                                    WarpSync::InProgress(self.inner),
+                                    Some(Error::CallProofEntriesMissing),
+                                );
+                            }
+                        };
 
                         match get.inject_value(value.map(iter::once)) {
                             chain_information::build::ChainInformationBuild::Finished {

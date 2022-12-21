@@ -24,6 +24,7 @@ pub mod async_std;
 /// Access to a platform's capabilities.
 pub trait Platform: Send + 'static {
     type Delay: Future<Output = ()> + Unpin + Send + 'static;
+    type Yield: Future<Output = ()> + Unpin + Send + 'static;
     type Instant: Clone
         + ops::Add<Duration, Output = Self::Instant>
         + ops::Sub<Self::Instant, Output = Duration>
@@ -46,11 +47,11 @@ pub trait Platform: Send + 'static {
         + Unpin
         + Send
         + 'static;
-    type StreamDataFuture: Future<Output = ()> + Unpin + Send + 'static;
-    type NextSubstreamFuture: Future<Output = Option<(Self::Stream, PlatformSubstreamDirection)>>
+    type StreamDataFuture<'a>: Future<Output = ()> + Unpin + Send + 'a;
+    type NextSubstreamFuture<'a>: Future<Output = Option<(Self::Stream, PlatformSubstreamDirection)>>
         + Unpin
         + Send
-        + 'static;
+        + 'a;
 
     /// Returns the time elapsed since [the Unix Epoch](https://en.wikipedia.org/wiki/Unix_time)
     /// (i.e. 00:00:00 UTC on 1 January 1970), ignoring leap seconds.
@@ -71,6 +72,11 @@ pub trait Platform: Send + 'static {
     /// Creates a future that becomes ready after the given instant has been reached.
     fn sleep_until(when: Self::Instant) -> Self::Delay;
 
+    /// Should be called after a CPU-intensive operation in order to yield back control.
+    ///
+    /// This function can be implemented as no-op on platforms where this is irrelevant.
+    fn yield_after_cpu_intensive() -> Self::Yield;
+
     /// Starts a connection attempt to the given multiaddress.
     ///
     /// The multiaddress is passed as a string. If the string can't be parsed, an error should be
@@ -80,6 +86,9 @@ pub trait Platform: Send + 'static {
     /// Queues the opening of an additional outbound substream.
     ///
     /// The substream, once opened, must be yielded by [`Platform::next_substream`].
+    ///
+    /// Calls to this function should be ignored if the connection has already been killed by the
+    /// remote.
     ///
     /// > **Note**: No mechanism exists in this API to handle the situation where a substream fails
     /// >           to open, as this is not supposed to happen. If you need to handle such a
@@ -95,21 +104,14 @@ pub trait Platform: Send + 'static {
     /// The future can also return `None` if the connection has been killed by the remote. If
     /// the future returns `None`, the user of the `Platform` should drop the `Connection` and
     /// all its associated `Stream`s as soon as possible.
-    fn next_substream(connection: &mut Self::Connection) -> Self::NextSubstreamFuture;
+    fn next_substream(connection: &'_ mut Self::Connection) -> Self::NextSubstreamFuture<'_>;
 
     /// Returns a future that becomes ready when either the read buffer of the given stream
     /// contains data, or the remote has closed their sending side.
     ///
     /// The future is immediately ready if data is already available or the remote has already
     /// closed their sending side.
-    ///
-    /// This function can be called multiple times with the same stream, in which case all
-    /// the futures must be notified. The user of this function, however, is encouraged to
-    /// maintain only one active future.
-    ///
-    /// If the future is polled after the stream object has been dropped, the behavior is
-    /// not specified. The polling might panic, or return `Ready`, or return `Pending`.
-    fn wait_more_data(stream: &mut Self::Stream) -> Self::StreamDataFuture;
+    fn wait_more_data(stream: &'_ mut Self::Stream) -> Self::StreamDataFuture<'_>;
 
     /// Gives access to the content of the read buffer of the given stream.
     fn read_buffer(stream: &mut Self::Stream) -> ReadBuffer;

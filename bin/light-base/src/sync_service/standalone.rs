@@ -34,7 +34,7 @@ use smoldot::{
     libp2p,
     network::{self, protocol},
     sync::all,
-    trie::proof_verify,
+    trie::proof_decode,
 };
 
 /// Starts a sync service background task to synchronize a standalone chain (relay chain or not).
@@ -85,7 +85,7 @@ pub(super) async fn start_standalone_chain<TPlat: Platform>(
         pending_storage_requests: stream::FuturesUnordered::new(),
         pending_call_proof_requests: stream::FuturesUnordered::new(),
         warp_sync_taking_long_time_warning: future::Either::Left(TPlat::sleep(
-            Duration::from_secs(15),
+            Duration::from_secs(10),
         ))
         .fuse(),
         all_notifications: Vec::<mpsc::Sender<Notification>>::new(),
@@ -132,11 +132,9 @@ pub(super) async fn start_standalone_chain<TPlat: Platform>(
             if has_done_verif {
                 queue_empty = false;
 
-                // Since JavaScript/Wasm is single-threaded, executing many CPU-heavy operations
-                // in a row would prevent all the other tasks in the background from running.
-                // In order to provide a better granularity, we force a yield after each
-                // verification.
-                crate::util::yield_twice().await;
+                // As explained in the documentation of `yield_after_cpu_intensive`, we should
+                // yield after a CPU-intensive operation. This helps provide a better granularity.
+                TPlat::yield_after_cpu_intensive().await;
             }
 
             queue_empty
@@ -304,7 +302,7 @@ pub(super) async fn start_standalone_chain<TPlat: Platform>(
                     task.sync.call_proof_response(
                         request_id,
                         match result {
-                            Ok(ref r) => Ok(r.decode().into_iter()),
+                            Ok(ref r) => Ok(r.decode().to_owned()), // TODO: need help from networking service to avoid this to_owned
                             Err(err) => Err(err),
                         }
                     ).1
@@ -317,13 +315,30 @@ pub(super) async fn start_standalone_chain<TPlat: Platform>(
             },
 
             () = &mut task.warp_sync_taking_long_time_warning => {
-                log::warn!(
-                    target: &task.log_target,
-                    "GrandPa warp sync still in progress and taking a long time"
-                );
+                match task.sync.status() {
+                    all::Status::Sync => {},
+                    all::Status::WarpSyncFragments { source: None, finalized_block_hash, finalized_block_number } => {
+                        log::warn!(
+                            target: &task.log_target,
+                            "GrandPa warp sync idle at block #{} (0x{})",
+                            finalized_block_number,
+                            HashDisplay(&finalized_block_hash),
+                        );
+                    }
+                    all::Status::WarpSyncFragments { source: Some((_, (peer_id, _))), finalized_block_hash, finalized_block_number } |
+                    all::Status::WarpSyncChainInformation { source: (_, (peer_id, _)), finalized_block_hash, finalized_block_number } => {
+                        log::warn!(
+                            target: &task.log_target,
+                            "GrandPa warp sync in progress. Block: #{} (0x{}). Peer attempt: {}.",
+                            finalized_block_number,
+                            HashDisplay(&finalized_block_hash),
+                            peer_id
+                        );
+                    },
+                };
 
                 task.warp_sync_taking_long_time_warning =
-                    future::Either::Left(TPlat::sleep(Duration::from_secs(15))).fuse();
+                    future::Either::Left(TPlat::sleep(Duration::from_secs(10))).fuse();
                 continue;
             },
 
@@ -568,18 +583,23 @@ impl<TPlat: Platform> Task<TPlat> {
                     if let Ok(outcome) = storage_request.await {
                         // TODO: lots of copying around
                         // TODO: log what happens
-                        let decoded = outcome.decode();
-                        keys.iter()
-                            .map(|key| {
-                                proof_verify::verify_proof(proof_verify::VerifyProofConfig {
-                                    proof: decoded.iter().map(|nv| &nv[..]),
-                                    requested_key: key.as_ref(),
-                                    trie_root_hash: &state_trie_root,
-                                })
-                                .map_err(|_| ())
-                                .map(|v| v.map(|v| v.to_vec()))
+                        if let Ok(decoded) =
+                            proof_decode::decode_and_verify_proof(proof_decode::Config {
+                                proof: outcome.decode(),
+                                trie_root_hash: &state_trie_root,
                             })
-                            .collect::<Result<Vec<_>, ()>>()
+                        {
+                            keys.iter()
+                                .map(|key| {
+                                    decoded
+                                        .storage_value(key)
+                                        .ok_or(())
+                                        .map(|v| v.map(|v| v.to_vec()))
+                                })
+                                .collect::<Result<Vec<_>, ()>>()
+                        } else {
+                            Err(())
+                        }
                     } else {
                         Err(())
                     }

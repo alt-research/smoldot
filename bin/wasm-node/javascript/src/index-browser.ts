@@ -50,6 +50,11 @@ export function start(options?: ClientOptions): Client {
     trustedBase64DecodeAndZlibInflate: (input) => {
       return Promise.resolve(inflate(classicDecode(input)))
     },
+    registerShouldPeriodicallyYield: (callback) => {
+      const wrappedCallback = () => callback(document.visibilityState === 'visible');
+      document.addEventListener('visibilitychange', wrappedCallback);
+      return [document.visibilityState === 'visible', () => { document.removeEventListener('visibilitychange', wrappedCallback) }]
+    },
     performanceNow: () => {
       return performance.now()
     },
@@ -65,7 +70,7 @@ export function start(options?: ClientOptions): Client {
         options?.forbidWs || false,
         options?.forbidNonLocalWs || false,
         options?.forbidWss || false,
-        !(options?.enableExperimentalWebRTC || false)
+        options?.forbidWebRtc || false
       )
     }
   })

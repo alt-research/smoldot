@@ -628,11 +628,10 @@ impl<TPlat: Platform> NetworkService<TPlat> {
                 let decoded = items.decode();
                 log::debug!(
                     target: "network",
-                    "Connection({}) => StorageProofRequest(chain={}, num_elems={}, total_size={})",
+                    "Connection({}) => StorageProofRequest(chain={}, total_size={})",
                     target,
                     self.shared.log_chain_names[chain_index],
-                    decoded.len(),
-                    BytesDisplay(decoded.iter().fold(0, |a, b| a + u64::try_from(b.len()).unwrap()))
+                    BytesDisplay(u64::try_from(decoded.len()).unwrap()),
                 );
             }
             Err(err) => {
@@ -699,11 +698,10 @@ impl<TPlat: Platform> NetworkService<TPlat> {
                 let decoded = items.decode();
                 log::debug!(
                     target: "network",
-                    "Connection({}) => CallProofRequest({}, num_elems: {}, total_size: {})",
+                    "Connection({}) => CallProofRequest({}, total_size: {})",
                     target,
                     self.shared.log_chain_names[chain_index],
-                    decoded.len(),
-                    BytesDisplay(decoded.iter().fold(0, |a, b| a + u64::try_from(b.len()).unwrap()))
+                    BytesDisplay(u64::try_from(decoded.len()).unwrap())
                 );
             }
             Err(err) => {
@@ -1114,9 +1112,9 @@ async fn update_round<TPlat: Platform>(
                         chain_index,
                     };
                 }
-                service::Event::BlocksRequestResult {
+                service::Event::RequestResult {
                     request_id,
-                    response,
+                    response: service::RequestResult::Blocks(response),
                 } => {
                     let _ = guarded
                         .blocks_requests
@@ -1124,9 +1122,9 @@ async fn update_round<TPlat: Platform>(
                         .unwrap()
                         .send(response);
                 }
-                service::Event::GrandpaWarpSyncRequestResult {
+                service::Event::RequestResult {
                     request_id,
-                    response,
+                    response: service::RequestResult::GrandpaWarpSync(response),
                 } => {
                     let _ = guarded
                         .grandpa_warp_sync_requests
@@ -1134,9 +1132,9 @@ async fn update_round<TPlat: Platform>(
                         .unwrap()
                         .send(response);
                 }
-                service::Event::StorageProofRequestResult {
+                service::Event::RequestResult {
                     request_id,
-                    response,
+                    response: service::RequestResult::StorageProof(response),
                 } => {
                     let _ = guarded
                         .storage_proof_requests
@@ -1144,9 +1142,9 @@ async fn update_round<TPlat: Platform>(
                         .unwrap()
                         .send(response);
                 }
-                service::Event::CallProofRequestResult {
+                service::Event::RequestResult {
                     request_id,
-                    response,
+                    response: service::RequestResult::CallProof(response),
                 } => {
                     let _ = guarded
                         .call_proof_requests
@@ -1154,9 +1152,8 @@ async fn update_round<TPlat: Platform>(
                         .unwrap()
                         .send(response);
                 }
-                service::Event::StateRequestResult { .. }
-                | service::Event::KademliaFindNodeRequestResult { .. } => {
-                    // We never start this kind of requests.
+                service::Event::RequestResult { .. } => {
+                    // We never start any other kind of requests.
                     unreachable!()
                 }
                 service::Event::KademliaDiscoveryResult {
@@ -1320,18 +1317,14 @@ async fn update_round<TPlat: Platform>(
                 .next()
                 .cloned();
 
-            if let Some(peer_id) = peer_id {
-                log::debug!(
-                    target: "connections",
-                    "OutSlots({}) ∋ {}",
-                    &shared.log_chain_names[chain_index],
-                    peer_id
-                );
-
-                guarded.network.assign_out_slot(chain_index, peer_id);
-            } else {
-                break;
-            }
+            let Some(peer_id) = peer_id else { break };
+            log::debug!(
+                target: "connections",
+                "OutSlots({}) ∋ {}",
+                &shared.log_chain_names[chain_index],
+                peer_id
+            );
+            guarded.network.assign_out_slot(chain_index, peer_id);
         }
     }
 
