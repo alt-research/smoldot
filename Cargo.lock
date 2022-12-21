@@ -1446,6 +1446,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "light-node"
+version = "0.1.0"
+dependencies = [
+ "async-std",
+ "clap 4.0.27",
+ "env_logger",
+ "futures",
+ "log",
+ "serde_json",
+ "smoldot",
+ "smoldot-light",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.0.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"

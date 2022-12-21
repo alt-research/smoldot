@@ -17,6 +17,7 @@ members = [
     ".",
     "bin/full-node",
     "bin/light-base",
+    "bin/light-node",
     "bin/wasm-node/rust",
 ]
 
