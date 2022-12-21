@@ -1454,6 +1454,7 @@ dependencies = [
  "env_logger",
  "futures",
  "log",
+ "serde",
  "serde_json",
  "smoldot",
  "smoldot-light",
