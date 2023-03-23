@@ -754,6 +754,8 @@ pub enum Notification {
         /// [`BlockNotification`], either in [`SubscribeAll::non_finalized_blocks_ancestry_order`]
         /// or in a [`Notification::Block`].
         best_block_hash: [u8; 32],
+        /// Proof for the new finalized, just for grandpa
+        proof: Option<Vec<u8>>,
     },
 
     /// A new block has been added to the list of unfinalized blocks.

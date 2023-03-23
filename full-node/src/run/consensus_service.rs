@@ -1196,6 +1196,7 @@ impl SyncBackground {
                             all::FinalityProofVerifyOutcome::NewFinalized {
                                 finalized_blocks,
                                 updates_best_block,
+                                ..
                             },
                         ) => {
                             log::debug!("finality-proof-verification; outcome=success");

@@ -67,6 +67,7 @@
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![recursion_limit = "512"]
 #![deny(rustdoc::broken_intra_doc_links)]
+#![feature(generic_associated_types)]
 // TODO: the `unused_crate_dependencies` lint is disabled because of dev-dependencies, see <https://github.com/rust-lang/rust/issues/95513>
 // #![deny(unused_crate_dependencies)]
 
@@ -270,6 +271,9 @@ impl<TPlat: platform::Platform> Clone for ChainServices<TPlat> {
 pub struct AddChainSuccess {
     /// Newly-allocated identifier for the chain.
     pub chain_id: ChainId,
+
+    /// Genesis header hash.
+    pub genesis_block_hash: [u8; 32],
 
     /// Stream of JSON-RPC responses or notifications.
     ///
@@ -865,6 +869,7 @@ impl<TPlat: platform::Platform, TChain> Client<TPlat, TChain> {
         });
         Ok(AddChainSuccess {
             chain_id: new_chain_id,
+            genesis_block_hash,
             json_rpc_responses: json_rpc_frontend.map(|f| JsonRpcResponses {
                 inner: Some(f),
                 public_api_chain_destroyed_rx,
