@@ -1205,6 +1205,7 @@ impl SyncBackground {
                             all::FinalityProofVerifyOutcome::NewFinalized {
                                 finalized_blocks,
                                 updates_best_block,
+                                ..
                             },
                         ) => {
                             span.record("outcome", &"success");

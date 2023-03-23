@@ -521,6 +521,7 @@ enum SubscriptionTy {
     ChainHeadBody,
     ChainHeadCall,
     ChainHeadStorage,
+    GrandpaJustification,
 }
 
 struct Cache {
@@ -756,6 +757,8 @@ impl<TPlat: Platform> Background<TPlat> {
             | methods::MethodCall::childstate_getStorageHash { .. }
             | methods::MethodCall::childstate_getStorageSize { .. }
             | methods::MethodCall::grandpa_roundState { .. }
+            | methods::MethodCall::grandpa_subscribeJustifications { .. }
+            | methods::MethodCall::grandpa_unsubscribeJustifications { .. }
             | methods::MethodCall::offchain_localStorageGet { .. }
             | methods::MethodCall::offchain_localStorageSet { .. }
             | methods::MethodCall::payment_queryInfo { .. }
@@ -1204,6 +1207,18 @@ impl<TPlat: Platform> Background<TPlat> {
                     request_id,
                     &state_machine_request_id,
                     &*subscription,
+                )
+                .await;
+            }
+            methods::MethodCall::grandpa_subscribeJustifications {} => {
+                self.grandpa_subscribe_all_justifications(request_id, &state_machine_request_id)
+                    .await;
+            }
+            methods::MethodCall::grandpa_unsubscribeJustifications { subscription } => {
+                self.grandpa_unsubscribe_all_justifications(
+                    request_id,
+                    &state_machine_request_id,
+                    subscription,
                 )
                 .await;
             }

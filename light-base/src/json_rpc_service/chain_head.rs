@@ -619,6 +619,7 @@ impl<TPlat: Platform> Background<TPlat> {
                         | either::Right(Some(sync_service::Notification::Finalized {
                             best_block_hash,
                             hash,
+                            ..
                         })) => {
                             let mut finalized_blocks_hashes = Vec::new();
                             let mut pruned_blocks_hashes = Vec::new();

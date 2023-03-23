@@ -37,6 +37,7 @@ use core::{
     time::Duration,
 };
 use futures::{lock::MutexGuard, prelude::*};
+use smoldot::json_rpc::methods::HexString;
 use smoldot::{
     header,
     informant::HashDisplay,
@@ -1694,5 +1695,183 @@ impl<TPlat: Platform> Background<TPlat> {
                 future::Abortable::new(task, abort_registration).map(|_| ()),
             ))
             .unwrap();
+    }
+
+    /// Handles a call to [`methods::MethodCall::grandpa_subscribeJustifications`].
+    pub(super) async fn grandpa_subscribe_all_justifications(
+        self: &Arc<Self>,
+        request_id: &str,
+        state_machine_request_id: &requests_subscriptions::RequestId,
+    ) {
+        let state_machine_subscription = match self
+            .requests_subscriptions
+            .start_subscription(state_machine_request_id, 16)
+            .await
+        {
+            Ok(v) => v,
+            Err(requests_subscriptions::StartSubscriptionError::LimitReached) => {
+                self.requests_subscriptions
+                    .respond(
+                        state_machine_request_id,
+                        json_rpc::parse::build_error_response(
+                            request_id,
+                            json_rpc::parse::ErrorResponse::ServerError(
+                                -32000,
+                                "Too many active subscriptions",
+                            ),
+                            None,
+                        ),
+                    )
+                    .await;
+                return;
+            }
+        };
+
+        let subscription_id = self
+            .next_subscription_id
+            .fetch_add(1, atomic::Ordering::Relaxed)
+            .to_string();
+
+        let abort_registration = {
+            let (abort_handle, abort_registration) = future::AbortHandle::new_pair();
+            let mut subscriptions_list = self.subscriptions.lock().await;
+            subscriptions_list.misc.insert(
+                (
+                    subscription_id.clone(),
+                    SubscriptionTy::GrandpaJustification,
+                ),
+                (abort_handle, state_machine_subscription.clone()),
+            );
+            abort_registration
+        };
+
+        self.requests_subscriptions
+            .respond(
+                &state_machine_request_id,
+                methods::Response::grandpa_subscribeJustifications((&subscription_id).into())
+                    .to_json_response(request_id),
+            )
+            .await;
+
+        // Spawn a separate task for the subscription.
+        let task = {
+            let me = self.clone();
+            async move {
+                loop {
+                    let mut new_blocks = {
+                        // The buffer size should be large enough so that, if the CPU is busy, it
+                        // doesn't become full before the execution of the runtime service resumes.
+                        // The maximum number of pinned block is ignored, as this maximum is a way
+                        // to avoid malicious behaviors. This code is by definition not considered
+                        // malicious.
+                        let subscribe_all = me
+                            .runtime_service
+                            .subscribe_all(
+                                "grandpa_subscribeJustifications",
+                                64,
+                                NonZeroUsize::new(usize::max_value()).unwrap(),
+                            )
+                            .await;
+
+                        // The existing finalized and already-known blocks aren't reported to the
+                        // user, but we need to unpin them on to the runtime service.
+                        subscribe_all
+                            .new_blocks
+                            .unpin_block(&header::hash_from_scale_encoded_header(
+                                &subscribe_all.finalized_block_scale_encoded_header,
+                            ))
+                            .await;
+                        for block in subscribe_all.non_finalized_blocks_ancestry_order {
+                            subscribe_all
+                                .new_blocks
+                                .unpin_block(&header::hash_from_scale_encoded_header(
+                                    &block.scale_encoded_header,
+                                ))
+                                .await;
+                        }
+
+                        subscribe_all.new_blocks
+                    };
+
+                    loop {
+                        match new_blocks.next().await {
+                            // TODO: change to GrandpaJustification.
+                            Some(runtime_service::Notification::Finalized {
+                                grandpa_justification,
+                                ..
+                            }) => {
+                                // This function call will fail if the queue of notifications to
+                                // the user has too many elements in it. This JSON-RPC function
+                                // unfortunately doesn't provide any mechanism to deal with this
+                                // situation, and we handle it by simply not sending the
+                                // notification.
+                                if let Some(grandpa_justification) = grandpa_justification{
+                                let _ = me
+                                    .requests_subscriptions
+                                    .try_push_notification(
+                                        &state_machine_subscription,
+                                        methods::ServerToClient::grandpa_subscribeJustifications {
+                                            subscription: (&subscription_id).into(),
+                                            result: HexString(grandpa_justification),
+                                        }
+                                        .to_json_call_object_parameters(None),
+                                    )
+                                    .await;
+                                }
+                            }
+                            Some(runtime_service::Notification::BestBlockChanged { .. })
+                            | Some(runtime_service::Notification::Block { .. }) => {}
+                            None => {
+                                // Break from the inner loop in order to recreate the channel.
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        self.new_child_tasks_tx
+            .lock()
+            .await
+            .unbounded_send(Box::pin(
+                future::Abortable::new(task, abort_registration).map(|_| ()),
+            ))
+            .unwrap();
+    }
+
+    /// Handles a call to [`methods::MethodCall::grandpa_unsubscribeJustifications`].
+    pub(super) async fn grandpa_unsubscribe_all_justifications(
+        self: &Arc<Self>,
+        request_id: &str,
+        state_machine_request_id: &requests_subscriptions::RequestId,
+        subscription: String,
+    ) {
+        let state_machine_subscription = if let Some((abort_handle, state_machine_subscription)) =
+            self.subscriptions.lock().await.misc.remove(&(
+                subscription.to_owned(),
+                SubscriptionTy::GrandpaJustification,
+            )) {
+            abort_handle.abort();
+            Some(state_machine_subscription)
+        } else {
+            None
+        };
+
+        if let Some(state_machine_subscription) = &state_machine_subscription {
+            self.requests_subscriptions
+                .stop_subscription(state_machine_subscription)
+                .await;
+        }
+
+        self.requests_subscriptions
+            .respond(
+                state_machine_request_id,
+                methods::Response::grandpa_unsubscribeJustifications(
+                    state_machine_subscription.is_some(),
+                )
+                .to_json_response(request_id),
+            )
+            .await;
     }
 }

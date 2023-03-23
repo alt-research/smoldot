@@ -2277,6 +2277,7 @@ impl<TRq, TSrc, TBl> FinalityProofVerify<TRq, TSrc, TBl> {
                         all_forks::FinalityProofVerifyOutcome::NewFinalized {
                             finalized_blocks,
                             updates_best_block,
+                            finality_proof,
                         },
                     ) => (
                         sync,
@@ -2291,6 +2292,7 @@ impl<TRq, TSrc, TBl> FinalityProofVerify<TRq, TSrc, TBl> {
                                 })
                                 .collect(),
                             updates_best_block,
+                            finality_proof: Some(finality_proof),
                         },
                     ),
                     (sync, all_forks::FinalityProofVerifyOutcome::AlreadyFinalized) => {
@@ -2337,6 +2339,7 @@ impl<TRq, TSrc, TBl> FinalityProofVerify<TRq, TSrc, TBl> {
                             })
                             .collect(),
                         updates_best_block: false,
+                        finality_proof: None,
                     },
                 ),
                 (inner, optimistic::JustificationVerification::Reset { error, .. }) => (
@@ -2363,6 +2366,8 @@ pub enum FinalityProofVerifyOutcome<TBl> {
         /// This can happen if the previous best block isn't a descendant of the now finalized
         /// block.
         updates_best_block: bool,
+        /// Proof for the new finalized, just for grandpa
+        finality_proof: Option<all_forks::FinalityProof>,
     },
     /// Finality proof concerns block that was already finalized.
     AlreadyFinalized,

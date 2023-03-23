@@ -2432,6 +2432,7 @@ dependencies = [
  "itertools",
  "log",
  "lru",
+ "parity-scale-codec",
  "parking_lot 0.12.1",
  "rand",
  "serde",
