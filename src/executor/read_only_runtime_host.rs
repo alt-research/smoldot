@@ -445,6 +445,7 @@ impl Inner {
                 }
 
                 other => {
+                    log::error!("ForbiddenHostCall {:?}", other);
                     return RuntimeHostVm::Finished(Err(Error {
                         detail: ErrorDetail::ForbiddenHostCall,
                         prototype: other.into_prototype(),
