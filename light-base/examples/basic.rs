@@ -44,6 +44,7 @@ fn main() {
     let smoldot_light::AddChainSuccess {
         chain_id,
         json_rpc_responses,
+        ..
     } = client
         .add_chain(smoldot_light::AddChainConfig {
             // The most important field of the configuration is the chain specification. This is a

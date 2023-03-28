@@ -147,6 +147,7 @@ pub async fn subscribe_runtime_version<TPlat: Platform>(
                             hash,
                             pruned_blocks,
                             best_block_hash,
+                            ..
                         } => {
                             let current_best_runtime =
                                 headers.get(&current_best).unwrap().clone();
@@ -391,6 +392,7 @@ pub async fn subscribe_best<TPlat: Platform>(
                             hash,
                             pruned_blocks,
                             best_block_hash,
+                            ..
                         } => {
                             // Clean up the headers we won't need anymore.
                             for pruned_block in pruned_blocks {
