@@ -1619,6 +1619,7 @@ impl SyncBackground {
                         all::FinalityProofVerifyOutcome::NewFinalized {
                             mut finalized_blocks,
                             updates_best_block,
+                            ..
                         },
                     ) => {
                         self.log_callback.log(

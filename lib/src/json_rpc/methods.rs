@@ -405,6 +405,8 @@ define_methods! {
     childstate_getStorageHash() -> (), // TODO:
     childstate_getStorageSize() -> (), // TODO:
     grandpa_roundState() -> (), // TODO:
+    grandpa_subscribeJustifications() -> Cow<'a, str> [grandpa_justifications],
+    grandpa_unsubscribeJustifications(subscription: String) -> bool,
     offchain_localStorageGet() -> (), // TODO:
     offchain_localStorageSet() -> (), // TODO:
     payment_queryInfo(extrinsic: HexString, hash: Option<HashHexString>) -> RuntimeDispatchInfo,
@@ -512,6 +514,7 @@ define_methods! {
     chain_allHead(subscription: Cow<'a, str>, result: Header) -> (),
     state_runtimeVersion(subscription: Cow<'a, str>, result: Option<RuntimeVersion<'a>>) -> (), // TODO: the Option is a custom addition
     state_storage(subscription: Cow<'a, str>, result: StorageChangeSet) -> (),
+    grandpa_subscribeJustifications(subscription: Cow<'a, str>, result: HexString) -> (),
 
     // The functions below are experimental and are defined in the document https://github.com/paritytech/json-rpc-interface-spec/
     chainHead_unstable_followEvent(subscription: Cow<'a, str>, result: FollowEvent<'a>) -> (),

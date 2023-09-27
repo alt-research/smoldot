@@ -660,6 +660,7 @@ impl<TPlat: PlatformRef> ChainHeadFollowTask<TPlat> {
                     sync_service::Notification::Finalized {
                         best_block_hash,
                         hash,
+                        ..
                     },
                 ) => {
                     let mut finalized_blocks_hashes = Vec::new();

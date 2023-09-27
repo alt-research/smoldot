@@ -194,6 +194,7 @@ pub(super) fn start<TPlat: PlatformRef>(
                                 | methods::MethodCall::chain_subscribeNewHeads {}
                                 | methods::MethodCall::chain_subscribeFinalizedHeads {}
                                 | methods::MethodCall::state_subscribeRuntimeVersion {}
+                                | methods::MethodCall::grandpa_subscribeJustifications {}
                                 | methods::MethodCall::state_subscribeStorage { .. } => {
                                     me.to_legacy
                                         .lock()
@@ -290,6 +291,8 @@ impl<TPlat: PlatformRef> Background<TPlat> {
             | methods::MethodCall::childstate_getStorageHash { .. }
             | methods::MethodCall::childstate_getStorageSize { .. }
             | methods::MethodCall::grandpa_roundState { .. }
+            | methods::MethodCall::grandpa_subscribeJustifications { .. }
+            | methods::MethodCall::grandpa_unsubscribeJustifications { .. }
             | methods::MethodCall::offchain_localStorageGet { .. }
             | methods::MethodCall::offchain_localStorageSet { .. }
             | methods::MethodCall::payment_queryInfo { .. }
@@ -483,7 +486,6 @@ impl<TPlat: PlatformRef> Background<TPlat> {
             methods::MethodCall::sudo_unstable_version {} => {
                 self.sudo_unstable_version(request).await;
             }
-
             _method @ (methods::MethodCall::account_nextIndex { .. }
             | methods::MethodCall::author_hasKey { .. }
             | methods::MethodCall::author_hasSessionKeys { .. }
@@ -560,6 +562,8 @@ impl<TPlat: PlatformRef> Background<TPlat> {
             | methods::MethodCall::childstate_getStorageHash { .. }
             | methods::MethodCall::childstate_getStorageSize { .. }
             | methods::MethodCall::grandpa_roundState { .. }
+            | methods::MethodCall::grandpa_subscribeJustifications { .. }
+            | methods::MethodCall::grandpa_unsubscribeJustifications { .. }
             | methods::MethodCall::offchain_localStorageGet { .. }
             | methods::MethodCall::offchain_localStorageSet { .. }
             | methods::MethodCall::payment_queryInfo { .. }
@@ -642,6 +646,7 @@ impl<TPlat: PlatformRef> Background<TPlat> {
             | methods::MethodCall::chain_subscribeFinalizedHeads {}
             | methods::MethodCall::chain_subscribeNewHeads {}
             | methods::MethodCall::state_subscribeRuntimeVersion {}
+            | methods::MethodCall::grandpa_subscribeJustifications {}
             | methods::MethodCall::state_subscribeStorage { .. } => {
                 unreachable!()
             }
