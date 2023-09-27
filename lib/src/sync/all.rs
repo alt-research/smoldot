@@ -2478,6 +2478,7 @@ impl<TRq, TSrc, TBl> FinalityProofVerify<TRq, TSrc, TBl> {
                             finalized_blocks_newest_to_oldest,
                             pruned_blocks,
                             updates_best_block,
+                            finality_proof,
                         },
                     ) => (
                         sync,
@@ -2496,6 +2497,7 @@ impl<TRq, TSrc, TBl> FinalityProofVerify<TRq, TSrc, TBl> {
                                 .map(|b| b.0.hash(self.shared.block_number_bytes))
                                 .collect(),
                             updates_best_block,
+                            finality_proof: Some(finality_proof),
                         },
                     ),
                     (sync, all_forks::FinalityProofVerifyOutcome::AlreadyFinalized) => {
@@ -2544,6 +2546,7 @@ impl<TRq, TSrc, TBl> FinalityProofVerify<TRq, TSrc, TBl> {
                             .collect(),
                         pruned_blocks: Vec::new(),
                         updates_best_block: false,
+                        finality_proof: None,
                     },
                 ),
                 (inner, optimistic::JustificationVerification::Reset { error, .. }) => (
@@ -2572,6 +2575,8 @@ pub enum FinalityProofVerifyOutcome<TBl> {
         /// This can happen if the previous best block isn't a descendant of the now finalized
         /// block.
         updates_best_block: bool,
+        /// Proof for the new finalized, just for grandpa
+        finality_proof: Option<all_forks::FinalityProof>,
     },
     /// Finality proof concerns block that was already finalized.
     AlreadyFinalized,

@@ -411,7 +411,9 @@ enum FinalityProofs {
     Justifications(Vec<([u8; 4], Vec<u8>)>),
 }
 
-enum FinalityProof {
+/// The finality proof for the blocks which finalized.
+#[derive(Debug)]
+pub enum FinalityProof {
     GrandpaCommit(Vec<u8>),
     Justification(([u8; 4], Vec<u8>)),
 }
@@ -2132,14 +2134,17 @@ impl<TBl, TRq, TSrc> FinalityProofVerify<TBl, TRq, TSrc> {
     ) {
         let block_number_bytes = self.parent.chain.block_number_bytes();
 
-        let finality_apply = match self.finality_proof_to_verify {
+        let (finality_apply, finality_proof) = match self.finality_proof_to_verify {
             FinalityProof::GrandpaCommit(scale_encoded_commit) => {
                 match self
                     .parent
                     .chain
                     .verify_grandpa_commit_message(&scale_encoded_commit, randomness_seed)
                 {
-                    Ok(finality_apply) => finality_apply,
+                    Ok(finality_apply) => (
+                        finality_apply,
+                        FinalityProof::GrandpaCommit(scale_encoded_commit),
+                    ),
 
                     // In case where the commit message concerns a block older or equal to the
                     // finalized block, the operation is silently considered successful.
@@ -2194,7 +2199,13 @@ impl<TBl, TRq, TSrc> FinalityProofVerify<TBl, TRq, TSrc> {
                     &scale_encoded_justification,
                     randomness_seed,
                 ) {
-                    Ok(finality_apply) => finality_apply,
+                    Ok(finality_apply) => (
+                        finality_apply,
+                        FinalityProof::Justification((
+                            consensus_engine_id,
+                            scale_encoded_justification,
+                        )),
+                    ),
 
                     // In case where the commit message concerns a block older or equal to the
                     // finalized block, the operation is silently considered successful.
@@ -2244,6 +2255,7 @@ impl<TBl, TRq, TSrc> FinalityProofVerify<TBl, TRq, TSrc> {
                 finalized_blocks_newest_to_oldest: finalized_blocks,
                 pruned_blocks,
                 updates_best_block,
+                finality_proof,
             },
         )
     }
@@ -2326,6 +2338,8 @@ pub enum FinalityProofVerifyOutcome<TBl> {
         /// This can happen if the previous best block isn't a descendant of the now finalized
         /// block.
         updates_best_block: bool,
+        /// Proof for the new finalized
+        finality_proof: FinalityProof,
     },
     /// Finality proof concerns block that was already finalized.
     AlreadyFinalized,

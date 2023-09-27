@@ -737,6 +737,7 @@ async fn run<TPlat: PlatformRef>(mut task: Task<TPlat>) {
                         hash: finalized_hash,
                         pruned_blocks,
                         best_block_hash: new_best_block_hash,
+                        ..
                     },
                 pinned_blocks,
                 finalized_and_pruned_lru,

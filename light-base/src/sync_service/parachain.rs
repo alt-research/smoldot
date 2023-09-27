@@ -896,6 +896,7 @@ impl<TPlat: PlatformRef> ParachainBackgroundTask<TPlat> {
                         let notif = super::Notification::Finalized {
                             hash,
                             best_block_hash,
+                            proof: None,
                         };
                         if sender.try_send(notif).is_ok() {
                             runtime_subscription.all_subscriptions.push(sender);
@@ -1112,7 +1113,7 @@ impl<TPlat: PlatformRef> ParachainBackgroundTask<TPlat> {
                     .id;
                 runtime_subscription
                     .async_tree
-                    .input_finalize(finalized, best);
+                    .input_finalize(finalized, best, None);
             }
             runtime_service::Notification::Block(block) => {
                 let hash = header::hash_from_scale_encoded_header(&block.scale_encoded_header);
@@ -1182,7 +1183,7 @@ impl<TPlat: PlatformRef> ParachainBackgroundTask<TPlat> {
                 &relay_chain_subscribe_all.finalized_block_scale_encoded_header,
             );
             let finalized_index = async_tree.input_insert_block(finalized_hash, None, false, true);
-            async_tree.input_finalize(finalized_index, finalized_index);
+            async_tree.input_finalize(finalized_index, finalized_index, None);
             for block in relay_chain_subscribe_all.non_finalized_blocks_ancestry_order {
                 let hash = header::hash_from_scale_encoded_header(&block.scale_encoded_header);
                 let parent = async_tree

@@ -2037,6 +2037,7 @@ impl SyncBackground {
                             finalized_blocks_newest_to_oldest,
                             pruned_blocks,
                             updates_best_block,
+                            ..
                         },
                     ) => {
                         self.sync = sync_out;
