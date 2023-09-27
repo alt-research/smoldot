@@ -411,7 +411,9 @@ enum FinalityProofs {
     Justifications(Vec<([u8; 4], Vec<u8>)>),
 }
 
-enum FinalityProof {
+/// The finality proof for the blocks which finalized.
+#[derive(Debug)]
+pub enum FinalityProof {
     GrandpaCommit(Vec<u8>),
     Justification(([u8; 4], Vec<u8>)),
 }
@@ -2183,6 +2185,7 @@ impl<TBl, TRq, TSrc> FinalityProofVerify<TBl, TRq, TSrc> {
                             finalized_blocks_newest_to_oldest: finalized_blocks,
                             pruned_blocks,
                             updates_best_block,
+                            finality_proof: FinalityProof::GrandpaCommit(scale_encoded_commit),
                         }
                     }
                     // In case where the commit message concerns a block older or equal to the
@@ -2243,10 +2246,16 @@ impl<TBl, TRq, TSrc> FinalityProofVerify<TBl, TRq, TSrc> {
                             self.parent.inner.blocks.set_finalized_block_height(
                                 finalized_blocks.last().unwrap().0.number,
                             );
+                        let finality_proof = FinalityProof::Justification((
+                            consensus_engine_id,
+                            scale_encoded_justification,
+                        ));
+
                         FinalityProofVerifyOutcome::NewFinalized {
                             finalized_blocks_newest_to_oldest: finalized_blocks,
                             pruned_blocks,
                             updates_best_block,
+                            finality_proof,
                         }
                     }
                     // In case where the commit message concerns a block older or equal to the
@@ -2344,6 +2353,8 @@ pub enum FinalityProofVerifyOutcome<TBl> {
         /// This can happen if the previous best block isn't a descendant of the now finalized
         /// block.
         updates_best_block: bool,
+        /// Proof for the new finalized
+        finality_proof: FinalityProof,
     },
     /// Finality proof concerns block that was already finalized.
     AlreadyFinalized,

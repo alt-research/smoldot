@@ -37,6 +37,7 @@ use core::{
 use futures_lite::FutureExt as _;
 use futures_util::{future, stream, FutureExt as _, StreamExt as _};
 use hashbrown::{HashMap, HashSet};
+use smoldot::sync::all_forks;
 use smoldot::{
     chain, header,
     informant::HashDisplay,
@@ -954,6 +955,7 @@ impl<TPlat: PlatformRef> Task<TPlat> {
                         all::FinalityProofVerifyOutcome::NewFinalized {
                             updates_best_block,
                             finalized_blocks_newest_to_oldest,
+                            finality_proof,
                             ..
                         },
                     ) => {
@@ -977,12 +979,21 @@ impl<TPlat: PlatformRef> Task<TPlat> {
                         {
                             self.known_finalized_runtime = None;
                         }
+                        // TODO by fy: Send grandpa notification
+                        let proof_raw = if let Some(all_forks::FinalityProof::GrandpaCommit(raw)) =
+                            finality_proof
+                        {
+                            Some(raw)
+                        } else {
+                            None
+                        };
                         self.dispatch_all_subscribers(Notification::Finalized {
                             hash: self
                                 .sync
                                 .finalized_block_header()
                                 .hash(self.sync.block_number_bytes()),
                             best_block_hash: self.sync.best_block_hash(),
+                            proof: proof_raw,
                         });
                     }
 
