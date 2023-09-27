@@ -183,6 +183,10 @@ pub(super) fn start_task<TPlat: PlatformRef>(
                 16,
                 Default::default(),
             ),
+            grandpa_subscriptions: hashbrown::HashMap::with_capacity_and_hasher(
+                16,
+                Default::default(),
+            ),
             storage_query_in_progress: false,
             block_state_root_hashes_numbers_cache: lru::LruCache::with_hasher(
                 NonZeroUsize::new(32).unwrap(),
@@ -230,6 +234,10 @@ struct Task<TPlat: PlatformRef> {
     /// subscription ID.
     finalized_heads_subscriptions:
         hashbrown::HashMap<String, service::Subscription, fnv::FnvBuildHasher>,
+    // TODO: shrink_to_fit?
+    /// List of all active `grandpa_subscribeJustifications` subscriptions, indexed by the
+    /// subscription ID.
+    grandpa_subscriptions: hashbrown::HashMap<String, service::Subscription, fnv::FnvBuildHasher>,
     // TODO: shrink_to_fit?
     /// List of all active `state_subscribeRuntimeVersion` subscriptions, indexed by the
     /// subscription ID.
@@ -737,6 +745,7 @@ async fn run<TPlat: PlatformRef>(mut task: Task<TPlat>) {
                         hash: finalized_hash,
                         pruned_blocks,
                         best_block_hash: new_best_block_hash,
+                        grandpa_justification,
                         ..
                     },
                 pinned_blocks,
@@ -747,6 +756,8 @@ async fn run<TPlat: PlatformRef>(mut task: Task<TPlat>) {
                 current_finalized_block,
                 finalized_heads_subscriptions_stale,
             } => {
+                use smoldot::json_rpc::methods::HexString;
+
                 *current_finalized_block = finalized_hash;
                 *finalized_heads_subscriptions_stale = true;
 
@@ -770,6 +781,20 @@ async fn run<TPlat: PlatformRef>(mut task: Task<TPlat>) {
                 if *current_best_block != new_best_block_hash {
                     *new_heads_and_runtime_subscriptions_stale = Some(Some(*current_best_block));
                     *current_best_block = new_best_block_hash;
+                }
+
+                if let Some(grandpa_justification) = grandpa_justification {
+                    let result = HexString(grandpa_justification);
+                    for (subscription_id, subscription) in &mut task.grandpa_subscriptions {
+                        subscription
+                            .send_notification(
+                                methods::ServerToClient::grandpa_subscribeJustifications {
+                                    subscription: subscription_id.as_str().into(),
+                                    result: result.clone(),
+                                },
+                            )
+                            .await;
+                    }
                 }
             }
 
@@ -940,6 +965,17 @@ async fn run<TPlat: PlatformRef>(mut task: Task<TPlat>) {
                         subscription_id,
                         (subscription, list.into_iter().map(|l| l.0).collect()),
                     );
+                }
+                methods::MethodCall::grandpa_subscribeJustifications {} => {
+                    let subscription = request.accept();
+                    let subscription_id = subscription.subscription_id().to_owned();
+
+                    log::debug!(target: "smoldot", "grandpa_subscribeJustifications {}", subscription_id);
+
+                    // TODO: to send
+
+                    task.grandpa_subscriptions
+                        .insert(subscription_id, subscription);
                 }
 
                 // Any other request.
