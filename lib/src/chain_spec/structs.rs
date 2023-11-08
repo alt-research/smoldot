@@ -29,7 +29,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-#[serde(deny_unknown_fields)]
 pub(super) struct ClientSpec {
     pub(super) name: String,
     pub(super) id: String,
