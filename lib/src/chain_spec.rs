@@ -533,7 +533,7 @@ impl LightSyncState {
 
 /// Error that can happen when parsing a chain spec JSON.
 #[derive(Debug, derive_more::Display)]
-#[display(fmt = "Failed to parse chain spec")]
+#[display(fmt = "Failed to parse chain spec {_0}")]
 pub struct ParseError(ParseErrorInner);
 
 #[derive(Debug, derive_more::Display)]
