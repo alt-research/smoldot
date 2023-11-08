@@ -1454,7 +1454,6 @@ async fn run_background<TPlat: PlatformRef>(
             blocks_stream: subscription.new_blocks.boxed(),
             wake_up_new_necessary_download: Box::pin(future::pending()),
             runtime_downloads: stream::FuturesUnordered::new(),
-            block_number_bytes: sync_service.block_number_bytes(),
         };
 
         background.start_necessary_downloads().await;
@@ -1868,7 +1867,7 @@ impl<TPlat: PlatformRef> Background<TPlat> {
         encoded_finality_proof.map(|encoded_finality_proof| {
             let decoded_commit = finality::grandpa::commit::decode::decode_grandpa_commit(
                 &encoded_finality_proof,
-                self.block_number_bytes,
+                self.sync_service.block_number_bytes(),
             )
             .expect("decode grandpa commit failed");
 
@@ -1926,7 +1925,7 @@ impl<TPlat: PlatformRef> Background<TPlat> {
                     let (parent_hash, current_header) = if current_hash == finalized_block.hash {
                         let decode_header = header::decode(
                             &finalized_block.scale_encoded_header,
-                            self.block_number_bytes,
+                            self.sync_service.block_number_bytes(),
                         )
                         .expect("decode header for finalized block failed");
 

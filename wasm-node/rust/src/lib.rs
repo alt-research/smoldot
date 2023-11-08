@@ -90,6 +90,7 @@ fn add_chain(
     let smoldot_light::AddChainSuccess {
         chain_id: smoldot_chain_id,
         json_rpc_responses,
+        ..
     } = match client_lock
         .smoldot
         .add_chain(smoldot_light::AddChainConfig {
